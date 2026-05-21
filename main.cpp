@@ -1,18 +1,9 @@
-#include "cuda_kernel.h"
+#include "cuda_kernel.cuh"
 
 #include <cstdio>
-#include <vector>
+#include <ctime>
 
 #include <omp.h>
-
-struct cmdArgs {
-    int deviceIndex;
-    char* input;
-    char* output;
-    bool verify;
-
-    unsigned int cpuBlockSize;
-};
 
 int parseArgs(int argc, char* argv[], cmdArgs* args) {
     args->deviceIndex = 0;
@@ -24,16 +15,12 @@ int parseArgs(int argc, char* argv[], cmdArgs* args) {
 
     
     // debug
-    args->verify = true;
+    // args->verify = true;
     args->cpuBlockSize = 16;
 
     //todo
     return 0;
 }
-
-struct calcTask {
-    std::vector<unsigned int> arr;
-};
 
 int readTask(cmdArgs* args, calcTask* task) {
     std::FILE* f = std::fopen(args->input, "rb");
@@ -58,21 +45,14 @@ int readTask(cmdArgs* args, calcTask* task) {
 
     
     //debug
-    std::printf("task values are:");
-    for (int i = 0; i < n; i++) {
-        std::printf(" %i", task->arr[i]);
-    }
-    std::printf("\n");
+    // std::printf("task values are:");
+    // for (int i = 0; i < n; i++) {
+    //     std::printf(" %i", task->arr[i]);
+    // }
+    // std::printf("\n");
 
     return 0;
 }
-
-struct calcRes {
-    std::vector<unsigned int> arr;
-
-    float kernelTime;
-    float fullTime;
-};
 
 int writeRes(cmdArgs* args, calcRes* res) {
     std::FILE* f = std::fopen(args->output, "wb");
@@ -97,14 +77,12 @@ int writeRes(cmdArgs* args, calcRes* res) {
     return 0;
 }
 
-int calcCUDA(cmdArgs* args, calcTask* task, calcRes* res) {
-    // todo
-    return 0;
-}
-
 int calcCPU(cmdArgs* args, calcTask* task, calcRes* res) {
     unsigned int n = task->arr.size();
     res->arr.resize(n);
+
+    std::clock_t start, end;
+    start = clock();
 
     #pragma omp parallel for
     for (unsigned int b = 0; b < n; b += args->cpuBlockSize) {
@@ -130,12 +108,16 @@ int calcCPU(cmdArgs* args, calcTask* task, calcRes* res) {
         }
     }
 
+    end = clock();
+    
+    res->fullTime = ((double) (end - start) * 1000) / CLOCKS_PER_SEC;
+
     //debug
-    std::printf("cpu values are:");
-    for (int i = 0; i < n; i++) {
-        std::printf(" %i", res->arr[i]);
-    }
-    std::printf("\n");
+    // std::printf("cpu values are:");
+    // for (int i = 0; i < n; i++) {
+    //     std::printf(" %i", res->arr[i]);
+    // }
+    // std::printf("\n");
     
     return 0;
 }
@@ -172,6 +154,12 @@ int main(int argc, char* argv[]) {
     }
 
     args.deviceIndex %= devCount;
+
+    cudaErr = cudaSetDevice(args.deviceIndex);
+    if (cudaErr) {
+        std::fprintf(stderr, "can't set cuda device: error %i", cudaErr);
+        return 1;
+    }
 
     cudaDeviceProp devProp;
     cudaErr = cudaGetDeviceProperties(&devProp, args.deviceIndex);
