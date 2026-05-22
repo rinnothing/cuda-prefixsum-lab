@@ -172,6 +172,7 @@ int main(int argc, char* argv[]) {
     cudaErr = cudaDriverGetVersion(&driverVersion);
     if (cudaErr) {
         std::fprintf(stderr, "can't get cuda driver version: error %i", cudaErr);
+        return 1;
     }
 
     std::printf("Device: %s\tDriver version: %i\n", devProp.name, driverVersion);
@@ -186,6 +187,12 @@ int main(int argc, char* argv[]) {
     err = calcCUDA(&args, &task, &cudaRes);
     if (err) {
         return err;
+    }
+
+    cudaErr = cudaDeviceReset();
+    if (cudaErr) {
+        std::fprintf(stderr, "can't reset cuda device: error %i", cudaErr);
+        return 1;
     }
 
     std::printf("Time: %g\t%g\n", cudaRes.kernelTime, cudaRes.fullTime);

@@ -16,6 +16,6 @@ struct calcTask {
 struct calcRes {
     std::vector<unsigned int> arr;
 
-    double kernelTime;
-    double fullTime;
+    float kernelTime;
+    float fullTime;
 };
