@@ -7,8 +7,30 @@
 #define BLOCK_THREADS 8
 #endif
 
-__device__ void sklansky(unsigned int lx, unsigned int px, unsigned int gx, unsigned int* arr, unsigned int length) {
-    //todo
+__device__ void sklansky(unsigned int lx, unsigned int px, unsigned int* arr) {
+    unsigned int pref = 0;
+    for (unsigned int base = px; base < px + BLOCK_SIZE; px += BLOCK_THREADS * 2) {
+        int i = lx * 2 + 1;
+
+        int step_deg = 1;
+        for (int step = 1; step <= BLOCK_THREADS; step <<= 1) {
+            arr[base + i] += arr[base + i - step];
+
+            __syncthreads();
+
+            if (lx - ((lx >> step_deg) << step_deg) < step) i += step;
+
+            step_deg++;
+        }
+
+        for (int j = 0; j < 2; j++) {
+            arr[base + lx + j * BLOCK_SIZE] += pref;
+        }
+
+        __syncthreads();
+
+        pref = arr[px + BLOCK_THREADS * 2 - 1];
+    }
 }
 
 enum status {
@@ -24,7 +46,6 @@ struct blockDescriptor {
 __global__ void prefsum(blockDescriptor* descriptors, unsigned int descriptors_length, unsigned int* task, unsigned int task_length) {
     unsigned int lx = threadIdx.x;
     unsigned int px = blockDim.x * blockIdx.x;
-    unsigned int gx = px + lx;
 
     __shared__ unsigned int local_task[BLOCK_SIZE];
 
@@ -36,7 +57,7 @@ __global__ void prefsum(blockDescriptor* descriptors, unsigned int descriptors_l
 
     __syncthreads();
 
-    sklansky(lx, px, gx, local_task, task_length);
+    sklansky(lx, px, local_task);
 
     __shared__ unsigned int block_prefix;
 

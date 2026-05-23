@@ -5,8 +5,6 @@ struct cmdArgs {
     char* input;
     char* output;
     bool verify;
-
-    unsigned int cpuBlockSize;
 };
 
 struct calcTask {

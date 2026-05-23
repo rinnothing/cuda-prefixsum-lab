@@ -1,9 +1,14 @@
 #include "cuda_kernel.cuh"
 
 #include <cstdio>
+#include <cstring>
 #include <ctime>
 
 #include <omp.h>
+
+#ifndef CPU_BLOCK_SIZE
+#define CPU_BLOCK_SIZE 64
+#endif
 
 int parseArgs(int argc, char* argv[], cmdArgs* args) {
     args->deviceIndex = 0;
@@ -11,14 +16,39 @@ int parseArgs(int argc, char* argv[], cmdArgs* args) {
     args->output = "output.txt";
     args->verify = false;
 
-    args->cpuBlockSize = 64;
+    for (int i = 1; i < argc; i++) {
+        if (std::strcmp(argv[i], "--help") == 0) {
+            printf(
+                "cuda prefsum\n"
+                "--help \t-show help]\n"
+                "--verify \t-check cuda caluculations correctness with cpu\n"
+                "--input \t-choose input file (default input.txt)\n"
+                "--output \t-choose output file (default output.txt)\n"
+                "--device-index \t-choose cuda device index\n"
+            );
+            std::exit(0);
+        } else if (std::strcmp(argv[i], "--verify") == 0) {
+            args->verify = true;
+        } else if (std::strcmp(argv[i], "--input") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "--input flag requires argument");
+                return 1;
+            }
+            args->input = argv[i+1];
+            i++;
+        } else if (std::strcmp(argv[i], "--output") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "--output flag requires argument");
+                return 1;
+            }
+            args->output = argv[i+1];
+            i++;
+        } else {
+            std::fprintf(stderr, "no such flag \"%s\"", argv[i]);
+            return 1;
+        }
+    }
 
-    
-    // debug
-    // args->verify = true;
-    args->cpuBlockSize = 16;
-
-    //todo
     return 0;
 }
 
@@ -85,8 +115,8 @@ int calcCPU(cmdArgs* args, calcTask* task, calcRes* res) {
     start = clock();
 
     #pragma omp parallel for
-    for (unsigned int b = 0; b < n; b += args->cpuBlockSize) {
-        unsigned int brd = std::min(args->cpuBlockSize, n-b);
+    for (unsigned int b = 0; b < n; b += CPU_BLOCK_SIZE) {
+        unsigned int brd = std::min((unsigned int) CPU_BLOCK_SIZE, n-b);
         res->arr[b] = task->arr[b];
         for (unsigned int i = 1; i < brd; i++) {
             res->arr[b+i] = res->arr[b+i-1] + task->arr[b+i];
@@ -94,14 +124,14 @@ int calcCPU(cmdArgs* args, calcTask* task, calcRes* res) {
     }
 
     unsigned int ttl = 0;
-    for (unsigned int i = args->cpuBlockSize-1; i < n; i += args->cpuBlockSize) {
+    for (unsigned int i = CPU_BLOCK_SIZE-1; i < n; i += CPU_BLOCK_SIZE) {
         res->arr[i] += ttl;
         ttl = res->arr[i];
     }
 
     #pragma omp parallel for
-    for (unsigned int b = args->cpuBlockSize; b < n; b += args->cpuBlockSize) {
-        unsigned int brd = std::min(args->cpuBlockSize - 1, n-b);
+    for (unsigned int b = CPU_BLOCK_SIZE; b < n; b += CPU_BLOCK_SIZE) {
+        unsigned int brd = std::min((unsigned int) CPU_BLOCK_SIZE - 1, n-b);
         unsigned int pref = res->arr[b-1];
         for (unsigned int i = 0; i < brd; i++) {
             res->arr[b+i] += pref;
