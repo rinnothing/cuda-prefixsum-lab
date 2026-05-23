@@ -73,14 +73,6 @@ int readTask(cmdArgs* args, calcTask* task) {
         return 1;
     }
 
-    
-    //debug
-    // std::printf("task values are:");
-    // for (int i = 0; i < n; i++) {
-    //     std::printf(" %i", task->arr[i]);
-    // }
-    // std::printf("\n");
-
     return 0;
 }
 
@@ -141,14 +133,7 @@ int calcCPU(cmdArgs* args, calcTask* task, calcRes* res) {
     end = clock();
     
     res->fullTime = ((double) (end - start) * 1000) / CLOCKS_PER_SEC;
-
-    //debug
-    // std::printf("cpu values are:");
-    // for (int i = 0; i < n; i++) {
-    //     std::printf(" %i", res->arr[i]);
-    // }
-    // std::printf("\n");
-    
+        
     return 0;
 }
 

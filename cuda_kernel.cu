@@ -1,20 +1,20 @@
 #include "cuda_kernel.cuh"
 #ifndef BLOCK_SIZE
-#define BLOCK_SIZE 256
+#define BLOCK_SIZE 1024
 #endif
 
 #ifndef BLOCK_THREADS
 #define BLOCK_THREADS 8
 #endif
 
-__device__ void sklansky(unsigned int lx, unsigned int px, unsigned int* arr) {
+__device__ void sklansky(unsigned int lx, unsigned int* arr) {
     unsigned int pref = 0;
-    for (unsigned int base = px; base < px + BLOCK_SIZE; px += BLOCK_THREADS * 2) {
+    for (unsigned int base = 0; base < BLOCK_SIZE; base += BLOCK_THREADS * 2) {
         int i = lx * 2 + 1;
 
         int step_deg = 1;
         for (int step = 1; step <= BLOCK_THREADS; step <<= 1) {
-            arr[base + i] += arr[base + i - step];
+            arr[base + i] += arr[base + i - (lx - ((lx >> (step_deg - 1)) << (step_deg - 1)) + 1)];
 
             __syncthreads();
 
@@ -24,55 +24,57 @@ __device__ void sklansky(unsigned int lx, unsigned int px, unsigned int* arr) {
         }
 
         for (int j = 0; j < 2; j++) {
-            arr[base + lx + j * BLOCK_SIZE] += pref;
+            arr[base + lx + j * BLOCK_THREADS] += pref;
         }
 
         __syncthreads();
 
-        pref = arr[px + BLOCK_THREADS * 2 - 1];
+        pref = arr[base + BLOCK_THREADS * 2 - 1];
     }
 }
 
 enum status {
-    A, P, X
+    A = 0,
+    P = 1,
+    X = 2
 };
 
 struct blockDescriptor {
-    volatile status status;
-    unsigned int sum;
-    unsigned int prefix;
+    int status;
+    volatile unsigned int sum;
+    volatile unsigned int prefix;
 };
 
 __global__ void prefsum(blockDescriptor* descriptors, unsigned int descriptors_length, unsigned int* task, unsigned int task_length) {
     unsigned int lx = threadIdx.x;
-    unsigned int px = blockDim.x * blockIdx.x;
+    unsigned int px = BLOCK_SIZE * blockIdx.x;
 
     __shared__ unsigned int local_task[BLOCK_SIZE];
 
     unsigned int end = min(task_length - px, (unsigned int) BLOCK_SIZE);
     for (int i = 0; i < BLOCK_SIZE; i += BLOCK_THREADS) {
-        if (px + i < end) local_task[px + i] = task[px + i];
-        else local_task[px+i] = 0;
+        if (lx + i < end) local_task[lx + i] = task[px + lx + i];
+        else local_task[lx + i] = 0;
     }
 
     __syncthreads();
 
-    sklansky(lx, px, local_task);
+    sklansky(lx, local_task);
 
     __shared__ unsigned int block_prefix;
 
     if (lx == 0) {
         block_prefix = 0;
-        descriptors[blockIdx.x].sum = task[BLOCK_SIZE-1];
+        descriptors[blockIdx.x].sum = local_task[BLOCK_SIZE-1];
         
         __threadfence();
         
-        descriptors[blockIdx.x].status = status::P;
+        atomicExch(&descriptors[blockIdx.x].status, status::A);
 
         for (int cur = blockIdx.x-1; cur >= 0; cur--) {
-            while (descriptors[cur].status == status::X)
-
-            if (descriptors[cur].status == status::P) {
+            while (atomicAdd(&descriptors[cur].status, 0) == status::X);
+            
+            if (atomicAdd(&descriptors[cur].status, 0) == status::P) {
                 block_prefix += descriptors[cur].prefix;
                 break;
             } else {
@@ -80,17 +82,17 @@ __global__ void prefsum(blockDescriptor* descriptors, unsigned int descriptors_l
             }
         }
 
-        descriptors[blockIdx.x].prefix = block_prefix;
+        descriptors[blockIdx.x].prefix = block_prefix + descriptors[blockIdx.x].sum;
         
         __threadfence();
 
-        descriptors[blockIdx.x].status = status::A;
+        atomicExch(&descriptors[blockIdx.x].status, status::P);
     }
 
     __syncthreads();
 
     for (int i = 0; i < BLOCK_SIZE; i += BLOCK_THREADS) {
-        if (px + i < end) task[px + i] = block_prefix + local_task[px + i];
+        if (lx + i < end) task[px + lx + i] = block_prefix + local_task[lx + i];
     }
 }
 
@@ -150,9 +152,11 @@ int calcCUDA(cmdArgs* args, calcTask* task, calcRes* res) {
     unsigned int grid = task->arr.size() / BLOCK_SIZE;
     if (task->arr.size() % BLOCK_SIZE != 0) grid++;
 
-    std::vector<blockDescriptor> descriptors_device(grid);
+    std::vector<blockDescriptor> descriptors_for_device(grid);
     for (int i = 0; i < grid; i++) {
-        descriptors_device[i].status = status::X;
+        descriptors_for_device[i].status = status::X;
+        descriptors_for_device[i].prefix = 67;
+        descriptors_for_device[i].sum = 69;
     }
 
     cudaError_t cudaErr = cudaError::cudaSuccess;
@@ -179,7 +183,7 @@ int calcCUDA(cmdArgs* args, calcTask* task, calcRes* res) {
         return 1;
     }
 
-    cudaErr = cudaMemcpyAsync(ctx.descriptors, &(*descriptors_device.begin()), sizeof(blockDescriptor) * grid, cudaMemcpyKind::cudaMemcpyHostToDevice);
+    cudaErr = cudaMemcpy(ctx.descriptors, &(*descriptors_for_device.begin()), sizeof(blockDescriptor) * grid, cudaMemcpyKind::cudaMemcpyHostToDevice);
     if (cudaErr) {
         std::fprintf(stderr, "can't copy cuda descriptors from host to device: error %i\n", cudaErr);
         cleanCudaContext(&ctx);
@@ -193,7 +197,7 @@ int calcCUDA(cmdArgs* args, calcTask* task, calcRes* res) {
         return 1;
     }
 
-    cudaErr = cudaMemcpyAsync(ctx.tasks, &(*task->arr.begin()), sizeof(unsigned int) * task->arr.size(), cudaMemcpyKind::cudaMemcpyHostToDevice);
+    cudaErr = cudaMemcpy(ctx.tasks, &(*task->arr.begin()), sizeof(unsigned int) * task->arr.size(), cudaMemcpyKind::cudaMemcpyHostToDevice);
     if (cudaErr) {
         std::fprintf(stderr, "can't copy cuda task from host to device: error %i\n", cudaErr);
         cleanCudaContext(&ctx);
@@ -206,7 +210,7 @@ int calcCUDA(cmdArgs* args, calcTask* task, calcRes* res) {
         return err;
     }
 
-    prefsum<<<grid, BLOCK_SIZE>>>(ctx.descriptors, grid, ctx.tasks, task->arr.size());
+    prefsum<<<grid, BLOCK_THREADS>>>(ctx.descriptors, grid, ctx.tasks, task->arr.size());
 
     err = recordAndSynchronizeEvent(ctx.events[2]);
     if (err) {
