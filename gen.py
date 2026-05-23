@@ -28,6 +28,6 @@ def gen(name, x):
     write_arr(f, a)
 
 if __name__ == "__main__":
-    x = 1600000
+    x = 16000000
 
     gen("input.txt", x)

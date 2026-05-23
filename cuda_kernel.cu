@@ -4,7 +4,7 @@
 #endif
 
 #ifndef BLOCK_THREADS
-#define BLOCK_THREADS 8
+#define BLOCK_THREADS 32
 #endif
 
 __device__ void sklansky(unsigned int lx, unsigned int* arr) {

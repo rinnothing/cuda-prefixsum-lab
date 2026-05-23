@@ -10,6 +10,18 @@
 #define CPU_BLOCK_SIZE 64
 #endif
 
+int parse_non_negative(char* arg, int* ans) {
+    char* endptr;
+    int res = std::strtol(arg, &endptr, 10);
+    if (*endptr != '\0' || res < 0) {
+        std::fprintf(stderr, "should be non-negative decimal integer\n");
+        return 1;
+    }
+
+    *ans = res;
+    return 0;
+}
+
 int parseArgs(int argc, char* argv[], cmdArgs* args) {
     args->deviceIndex = 0;
     args->input = "input.txt";
@@ -20,11 +32,11 @@ int parseArgs(int argc, char* argv[], cmdArgs* args) {
         if (std::strcmp(argv[i], "--help") == 0) {
             printf(
                 "cuda prefsum\n"
-                "--help \t-show help]\n"
-                "--verify \t-check cuda caluculations correctness with cpu\n"
-                "--input \t-choose input file (default input.txt)\n"
-                "--output \t-choose output file (default output.txt)\n"
-                "--device-index \t-choose cuda device index\n"
+                "--help \t\t- show help\n"
+                "--verify \t- check cuda caluculations correctness with cpu\n"
+                "--input \t- choose input file (default input.txt)\n"
+                "--output \t- choose output file (default output.txt)\n"
+                "--device-index \t- choose cuda device index\n"
             );
             std::exit(0);
         } else if (std::strcmp(argv[i], "--verify") == 0) {
@@ -43,6 +55,16 @@ int parseArgs(int argc, char* argv[], cmdArgs* args) {
             }
             args->output = argv[i+1];
             i++;
+        } else if (std::strcmp(argv[i], "--device-index") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "--device-index flag requires argument");
+                return 1;
+            }
+
+            if (parse_non_negative(argv[i+1], &args->deviceIndex)) {
+                std::fprintf(stderr, "can't read device_index");
+                return 1;
+            }
         } else {
             std::fprintf(stderr, "no such flag \"%s\"", argv[i]);
             return 1;
@@ -172,7 +194,7 @@ int main(int argc, char* argv[]) {
 
     cudaErr = cudaSetDevice(args.deviceIndex);
     if (cudaErr) {
-        std::fprintf(stderr, "can't set cuda device: error %i", cudaErr);
+        std::fprintf(stderr, "can't set cuda device with index %i: error %i", args.deviceIndex, cudaErr);
         return 1;
     }
 

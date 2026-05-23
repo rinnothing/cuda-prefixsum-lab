@@ -5,3 +5,4 @@
 *.lib
 
 *.txt
+__pycache__
